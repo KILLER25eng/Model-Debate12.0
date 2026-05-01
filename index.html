@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI模拟华语辩论赛 · 启动台</title>
+    <style>
+        :root {
+            --bg: #0b0b1a; --panel-bg: #12122a; --card-bg: #1a1a3a; --accent: #e94560;
+            --gold: #f0c060; --text: #e0e0e0; --text-light: #c0c0c0; --text-muted: #9090a0;
+            --border: #2a3050; --positive: #4ecdc4; --negative: #e94560; --radius: 16px;
+        }
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body {
+            font-family: 'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;
+            background: radial-gradient(circle at 30% 30%, #1a1a3a, #0b0b1a);
+            color: var(--text); min-height:100vh; display:flex; align-items:center; justify-content:center;
+            position:relative; overflow-x:hidden; padding:20px;
+        }
+        body::before {
+            content:''; position:fixed; top:0;left:0;width:100%;height:100%;
+            background: radial-gradient(circle at 25% 40%, rgba(233,68,96,0.3) 0%, transparent 35%),
+            radial-gradient(circle at 75% 40%, rgba(78,205,196,0.3) 0%, transparent 35%),
+            radial-gradient(circle at 50% 55%, rgba(240,192,96,0.2) 0%, transparent 45%);
+            z-index:0; pointer-events:none; animation: pulseGlow 4s ease-in-out infinite alternate;
+        }
+        @keyframes pulseGlow { 0% { opacity:0.7; transform: scale(1); } 100% { opacity:1; transform: scale(1.03); } }
+        .launcher {
+            background: var(--panel-bg); border-radius: var(--radius); padding:36px 28px;
+            border:1px solid var(--border); box-shadow:0 8px 40px rgba(0,0,0,0.6), 0 0 60px rgba(233,68,96,0.15);
+            max-width:620px; width:100%; text-align:center; position:relative; z-index:1; backdrop-filter: blur(4px);
+        }
+        .btn { padding:14px 32px; border-radius:30px; border:none; cursor:pointer; font-size:1.05rem; font-weight:600; background:var(--accent); color:#fff; }
+        .btn:hover { background:#ff5a75; }
+        .input-row input { flex:1; min-width:250px; padding:14px 20px; border-radius:30px; border:2px solid var(--border); background:var(--card-bg); color:var(--text); }
+    </style>
+</head>
+<body>
+<div class="launcher" id="launcherPanel">
+    <span class="logo-icon">⚡</span>
+    <h1>AI 模拟华语辩论赛</h1>
+    <p class="subtitle">四对四标准赛制 · 精准辩题分析 · 海量知识库</p>
+    <div class="input-row">
+        <input type="text" id="topicInput" placeholder="辩题，例如：以成败论英雄是/不是正当的" autocomplete="off">
+        <button class="btn" id="btnStart">▶ 开始辩论</button>
+    </div>
+    <div style="font-size:0.8rem;color:var(--text-muted);">💡 辩题含“/”时前后为完整正/反方命题（右侧若否定开头则自动生成正方）</div>
+    <div class="history-panel" id="historyPanel" style="margin-top:24px;text-align:left">
+        <div style="font-size:1rem;font-weight:600;color:var(--gold);margin-bottom:12px;">📚 已保存的辩论记录</div>
+        <div class="history-list" id="historyList"><span style="color:var(--text-muted);">暂无保存记录</span></div>
+        <button class="btn-sm" id="btnClearHistory">🗑 清空全部记录</button>
+    </div>
+</div>
+<div id="toastContainer" style="position:fixed;top:20px;right:20px;z-index:1000;"></div>
+<script>
+    (function() {
+        let allSaved = {};
+        function loadAll() { try { const r = localStorage.getItem('ai_debate_all_records'); if(r) allSaved = JSON.parse(r); else allSaved = {}; } catch(e) {} }
+        function saveAll() { try { localStorage.setItem('ai_debate_all_records', JSON.stringify(allSaved)); } catch(e) {} }
+        function runCount(topic) { let max=0; Object.keys(allSaved).forEach(k=>{ if(k.startsWith(topic+' #')){ const n=parseInt(k.split(' #')[1]); if(!isNaN(n)&&n>max) max=n; } }); return max; }
+        function escapeHtml(s){ const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+        function showToast(msg,d=2500){ const c=document.getElementById('toastContainer'); const t=document.createElement('div'); t.style.cssText='background:#2a2a40;color:#fff;padding:10px 20px;border-radius:25px;margin-bottom:8px;box-shadow:0 4px 12px rgba(0,0,0,0.3);font-size:0.9rem;'; t.textContent=msg; c.appendChild(t); setTimeout(()=>{ t.style.opacity='0'; t.style.transition='opacity 0.3s'; setTimeout(()=>t.remove(),300); },d); }
+        function deleteRec(name){ if(confirm(`删除"${name}"？`)){ delete allSaved[name]; saveAll(); updateHistory(); showToast('🗑 已删除'); } }
+        function clearAll(){ if(Object.keys(allSaved).length===0){ showToast('无记录'); return; } if(confirm('清空全部记录？')){ allSaved={}; saveAll(); updateHistory(); showToast('已清空'); } }
+        function updateHistory(){
+            const l = document.getElementById('historyList');
+            const keys = Object.keys(allSaved).sort((a,b)=>(allSaved[b].timestamp||'').localeCompare(allSaved[a].timestamp||''));
+            if(keys.length===0){ l.innerHTML='<span style="color:var(--text-muted);">暂无保存记录</span>'; return; }
+            l.innerHTML=keys.map(k=>{ const d=allSaved[k]; const w=d.result?d.result.winner:'?'; const date=d.timestamp?new Date(d.timestamp).toLocaleDateString('zh-CN'):''; return `<div class="history-item" data-name="${escapeHtml(k)}">📝 <strong>${escapeHtml(k)}</strong> <span style="font-size:0.7rem;color:var(--text-muted);">${date}</span> <span style="color:var(--gold);">🏆${w}</span> <span class="delete-btn">✕</span></div>`; }).join('');
+            document.querySelectorAll('.history-item').forEach(item=>{ item.addEventListener('click', function(e){ if(e.target.classList.contains('delete-btn')) return; const name=this.getAttribute('data-name'); if(name) openDebateWithSave(name); }); });
+            document.querySelectorAll('.delete-btn').forEach(btn=>{ btn.addEventListener('click', function(e){ e.stopPropagation(); const name=this.closest('.history-item').getAttribute('data-name'); if(name) deleteRec(name); }); });
+        }
+        function openDebateWithTopic(topic){
+            const seed = Date.now() + Math.floor(Math.random() * 100000);
+            const cnt=runCount(topic)+1; const saveName=`${topic} #${cnt}`;
+            const params=new URLSearchParams(); params.set('topic',topic); params.set('seed',seed); params.set('saveName',saveName);
+            const url=location.origin+location.pathname+'?'+params.toString();
+            const w=window.open(url,'_blank'); if(!w) showToast('请允许弹出窗口');
+        }
+        function openDebateWithSave(saveName){ const params=new URLSearchParams(); params.set('load',saveName); const url=location.origin+location.pathname+'?'+params.toString(); window.open(url,'_blank'); }
+        const $topic=document.getElementById('topicInput');
+        document.getElementById('btnStart').addEventListener('click',()=>{ const t=$topic.value.trim(); if(!t){ showToast('请输入辩题'); return; } openDebateWithTopic(t); });
+        $topic.addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); document.getElementById('btnStart').click(); } });
+        document.getElementById('btnClearHistory').addEventListener('click',clearAll);
+        loadAll(); updateHistory();
+        const urlParams=new URLSearchParams(window.location.search);
+        const topicParam=urlParams.get('topic'); const seedParam=urlParams.get('seed'); const saveNameParam=urlParams.get('saveName'); const loadParam=urlParams.get('load');
+        if(topicParam && seedParam){ document.body.innerHTML=''; const app=document.createElement('div'); app.id='debateApp'; document.body.appendChild(app); const style=document.createElement('style'); style.textContent=debateStyles(); document.head.appendChild(style); const script=document.createElement('script'); script.textContent=generateDebateScript(topicParam,seedParam,saveNameParam); document.body.appendChild(script); }
+        else if(loadParam){ document.body.innerHTML=''; const app=document.createElement('div'); app.id='debateApp'; document.body.appendChild(app); const style=document.createElement('style'); style.textContent=debateStyles(); document.head.appendChild(style); const script=document.createElement('script'); script.textContent=generateLoadScript(loadParam); document.body.appendChild(script); }
+    })();
+
+    function debateStyles(){ return `:root{--bg:#0b0b1a;--panel-bg:#12122a;--card-bg:#1a1a3a;--accent:#e94560;--gold:#f0c060;--text:#e0e0e0;--text-light:#c0c0c0;--text-muted:#9090a0;--border:#2a3050;--positive:#4ecdc4;--negative:#e94560;--chair:#f0c060;--judge:#a78bfa;--radius:16px;}*{margin:0;padding:0;box-sizing:border-box;}body{font-family:'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;padding:20px;}.app-container{max-width:1000px;margin:0 auto;}.stage{background:var(--panel-bg);border-radius:var(--radius);border:1px solid var(--border);max-height:65vh;overflow-y:auto;padding:20px;}.speech-bubble{padding:14px 18px;border-radius:16px;margin-bottom:16px;line-height:1.7;}.speech-positive{background:#17302e;border-left:4px solid var(--positive);}.speech-negative{background:#2e171e;border-left:4px solid var(--negative);}.speech-chair{background:#1f1a10;border-left:4px solid var(--chair);text-align:center;}.speech-judge{background:#1a1830;border-left:4px solid var(--judge);}.duration-tag{color:#f0c060;font-size:0.7rem;font-weight:600;}.btn-secondary{background:#2a3a5c;color:var(--text);border:1px solid var(--border);padding:8px 16px;border-radius:20px;cursor:pointer;}.hidden{display:none!important;}`;}
+
+function generateDebateScript(topic, seed, saveName){
+    const safeTopic=JSON.stringify(topic); const safeSeed=parseInt(seed); const safeSaveName=JSON.stringify(saveName);
+    return `(function(){try{
+const safeTopic=${safeTopic};const safeSaveName=${safeSaveName};const seed=${safeSeed};
+let speed=5,isRunning=true,isPaused=false,globalStepIndex=0,timeout=null,debateData=null;
+const WORDS_PER_SEC=5.5;
+function rng(s){return function(){s=(s*1664525+1013904223)&0xFFFFFFFF;return(s>>>0)/0xFFFFFFFF;}}
+function pick(arr,r){return arr[Math.floor(r()*arr.length)];}
+function shuffle(arr,r){const a=[...arr];for(let i=a.length-1;i>0;i--){const j=Math.floor(r()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
+let posProp=safeTopic,negProp=safeTopic;
+if(safeTopic.includes('/')){
+    const parts=safeTopic.split('/');
+    const left=parts[0].trim();
+    const right=parts[1]?parts[1].trim():'';
+    if(/^(不|没|非)/.test(right)){
+        posProp = left.replace(/是$/,'') + right.replace(/^(不|没|非)/,'是');
+        negProp = left.replace(/是$/,'') + right;
+    }else{
+        posProp = left;
+        negProp = right;
+    }
+}else{ negProp = '不' + safeTopic.replace(/是否|应该/g,''); }
+function extractKeywords(str){
+    const stop=['的','了','是','在','和','与','或','更','比','很','都','也','不','要','有','人','我们','这','那','什么','怎么','为什么','因为','所以','但是','然而','虽然','如果','那么','是否','应该','应当','可以','能够'];
+    let cleaned=str.replace(/[？?！!，,。、]/g,' ');
+    stop.forEach(w=>{cleaned=cleaned.replace(new RegExp(w,'g'),' ');});
+    return [...new Set(cleaned.split(/\\s+/).filter(w=>w.length>=1))];
+}
+const topicKeys=extractKeywords(posProp+' '+negProp);
+const BIG_KNOWLEDGE=[
+    {kw:['英雄','成败','历史','评价'], text:'司马迁在《史记》中为项羽立本纪，不以成败论英雄。'},
+    {kw:['英雄','成败','评价'], text:'拿破仑虽兵败滑铁卢，但其《拿破仑法典》影响至今。'},
+    {kw:['英雄','正义','正当'], text:'马丁·路德·金非暴力抗争，推动平权，虽被刺但精神永存。'},
+    {kw:['正当','法律','道德'], text:'苏格拉底饮毒酒服从雅典法律，坚守哲学信仰。'},
+    {kw:['正当','法律'], text:'“一次不公正的审判，其恶果超过十次犯罪。”——培根'},
+    {kw:['熬夜','病','健康'], text:'《柳叶刀》研究：长期睡眠不足增加心血管疾病风险。'},
+    {kw:['熬夜','药','灵感'], text:'卡夫卡、莫扎特都有深夜创作习惯，黑夜赋予独特灵感。'},
+    {kw:['科技','熬夜','996'], text:'互联网996文化导致员工猝死案例频发。'},
+    {kw:['改变','现实','勇气'], text:'曼德拉出狱后选择和解而非复仇，显示接受现实的勇气。'},
+    {kw:['接受','现实','勇气'], text:'海伦·凯勒接受盲聋现实却考上哈佛。'},
+    {kw:['勇气','坚持'], text:'爱迪生发明电灯经历千次失败，他说：“我找到了一千种不成功的方法。”'},
+    {kw:['哲学','价值'], text:'尼采：“那些杀不死我的，必使我更强大。”'},
+    {kw:['哲学','生活'], text:'罗曼·罗兰：“世界上只有一种英雄主义，就是看清生活真相后依然热爱生活。”'},
+    {kw:['道德','评价'], text:'岳飞精忠报国虽冤死，但被视为民族英雄。'},
+    {kw:['历史','评价'], text:'秦始皇统一六国功过争议，但他开创了郡县制。'},
+    {kw:['科学','探索'], text:'哥白尼坚持日心说被教会迫害，但其学说终获平反。'}
+];
+function smartSearch(kws, count, r){
+    let res=[];
+    BIG_KNOWLEDGE.forEach(item=>{ const m=item.kw.filter(k=>kws.some(tk=>tk.includes(k))).length; if(m>0)res.push({text:item.text,score:m}); });
+    if(res.length===0) res=BIG_KNOWLEDGE.map(c=>({text:c.text,score:1}));
+    res.sort((a,b)=>b.score-a.score);
+    return shuffle(res,r).slice(0,count);
+}
+function fillToTime(text,targetSec,r){
+    let sec=Math.ceil(text.length/WORDS_PER_SEC);
+    const cands=smartSearch(topicKeys,20,r);
+    let i=0,tries=0;
+    while(sec<targetSec*0.9 && tries<12){ if(i>=cands.length)i=0; text+=cands[i++].text+' '; sec=Math.ceil(text.length/WORDS_PER_SEC); tries++; }
+    return text;
+}
+function genConstructive(side,r){
+    const myProp=side==='positive'?posProp:negProp;
+    const cases=smartSearch(topicKeys,9,r);
+    let text='谢谢主席。我方认为“'+myProp+'”。\\n\\n';
+    text+='从定义出发，“'+myProp+'”意味着……\\n\\n';
+    for(let i=0;i<3;i++){ text+='第'+(i+1)+'，'+pick(cases,r).text+' 这证明“'+myProp+'”的正确性。\\n\\n'; }
+    text+='综上，我方坚持“'+myProp+'”。谢谢。';
+    return fillToTime(text,180,r);
+}
+function genRebuttal(side,r){
+    const my=side==='positive'?posProp:negProp;
+    const c=smartSearch(topicKeys,3,r);
+    let t='谢谢主席。对方立论存在误区。“'+c[0].text+'”恰恰说明'+my+'更合理。'+c[1].text+' 进一步印证。谢谢。';
+    return fillToTime(t,120,r);
+}
+function genSummary(side,r){
+    let t='谢谢主席。前半场我方已证明“'+(side==='positive'?posProp:negProp)+'”。对方在核心争议上未能有效回应。综上我方优势明显。';
+    return fillToTime(t,90,r);
+}
+function genClosing(side,r){
+    const c=smartSearch(topicKeys,4,r);
+    let t='各位评委，真理越辩越明。今日聚焦“'+safeTopic+'”。'+c[0].text+' '+c[1].text+'。因此，请支持“'+(side==='positive'?posProp:negProp)+'”。谢谢！';
+    return fillToTime(t,180,r);
+}
+const phases=[{id:'chair_open',name:'主席开场',type:'chair',totalSec:45},{id:'positive_c1',name:'正方一辩立论',type:'constructive',side:'positive',totalSec:180},{id:'n4_cross_p1',name:'反方四辩质询正方一辩',type:'crossfire',examinerSide:'negative',respondentSide:'positive',totalSec:90},{id:'negative_c1',name:'反方一辩立论',type:'constructive',side:'negative',totalSec:180},{id:'p4_cross_n1',name:'正方四辩质询反方一辩',type:'crossfire',examinerSide:'positive',respondentSide:'negative',totalSec:90},{id:'positive_c2',name:'正方二辩申论',type:'rebuttal',side:'positive',totalSec:120},{id:'n3_cross_p2',name:'反方三辩质询正方二辩',type:'crossfire',examinerSide:'negative',respondentSide:'positive',totalSec:90},{id:'negative_c2',name:'反方二辩申论',type:'rebuttal',side:'negative',totalSec:120},{id:'p3_cross_n2',name:'正方三辩质询反方二辩',type:'crossfire',examinerSide:'positive',respondentSide:'negative',totalSec:90},{id:'positive_c3_summary',name:'正方三辩小结',type:'summary',side:'positive',totalSec:90},{id:'negative_c3_summary',name:'反方三辩小结',type:'summary',side:'negative',totalSec:90},{id:'free_debate',name:'自由辩论',type:'free_debate',totalSec:480},{id:'negative_c4',name:'反方四辩总结陈词',type:'closing',side:'negative',totalSec:180},{id:'positive_c4',name:'正方四辩总结陈词',type:'closing',side:'positive',totalSec:180},{id:'judge_comment',name:'评委点评与判决',type:'judge',totalSec:120}];
+const allSpeeches=[];
+phases.forEach((p,pi)=>{const pr=rng(seed+pi*1000);
+if(p.type==='chair'){let t='各位评委、辩手，大家好！本场辩题是“'+safeTopic+'”。正方立场“'+posProp+'”，反方立场“'+negProp+'”。'+pick(['期待双方精彩表现。','请双方一辩开篇立论。'],pr);t=fillToTime(t,45,pr);allSpeeches.push({phaseId:p.id,phaseName:p.name,speaker:'主席',role:'chair',text:t,durationSec:Math.ceil(t.length/WORDS_PER_SEC)});}
+else if(p.type==='constructive'){const sp=genConstructive(p.side,pr);allSpeeches.push({phaseId:p.id,phaseName:p.name,speaker:(p.side==='positive'?'正方':'反方')+'一辩',role:'debater',side:p.side,text:sp,durationSec:Math.ceil(sp.length/WORDS_PER_SEC)});}
+else if(p.type==='rebuttal'){const sp=genRebuttal(p.side,pr);allSpeeches.push({phaseId:p.id,phaseName:p.name,speaker:(p.side==='positive'?'正方':'反方')+'二辩',role:'debater',side:p.side,text:sp,durationSec:Math.ceil(sp.length/WORDS_PER_SEC)});}
+else if(p.type==='summary'){const sp=genSummary(p.side,pr);allSpeeches.push({phaseId:p.id,phaseName:p.name,speaker:(p.side==='positive'?'正方':'反方')+'三辩',role:'debater',side:p.side,text:sp,durationSec:Math.ceil(sp.length/WORDS_PER_SEC)});}
+else if(p.type==='closing'){const sp=genClosing(p.side,pr);allSpeeches.push({phaseId:p.id,phaseName:p.name,speaker:(p.side==='positive'?'正方':'反方')+'四辩',role:'debater',side:p.side,text:sp,durationSec:Math.ceil(sp.length/WORDS_PER_SEC)});}
+else if(p.type==='crossfire'){const ep=(p.examinerSide==='positive'?'正方':'反方')+'四辩';const rp=(p.respondentSide==='positive'?'正方':'反方')+'一辩';const c=smartSearch(topicKeys,2,pr);allSpeeches.push({phaseId:p.id,phaseName:p.name,speaker:ep,role:'cross_examiner',text:'【'+ep+'】'+c[0].text+' 您方如何解释？',durationSec:20});allSpeeches.push({phaseId:p.id,phaseName:p.name,speaker:rp,role:'debater',text:'【'+rp+'】'+c[1].text+' 我方认为这恰恰支持我方。',durationSec:20});}
+else if(p.type==='free_debate'){for(let i=0;i<12;i++){const si=i%2===0?'positive':'negative';const c=smartSearch(topicKeys,1,rng(seed+i));const t=(si==='positive'?'【正方】'+posProp+'，因为'+c[0].text:'【反方】'+negProp+'才是正解，'+c[0].text);allSpeeches.push({phaseId:p.id,phaseName:p.name,speaker:si==='positive'?'正方':'反方',role:'free_debate',side:si,text:t,durationSec:Math.ceil(t.length/WORDS_PER_SEC)});}}
+else if(p.type==='judge'){const ps=70+Math.floor(pr()*25),ns=70+Math.floor(pr()*25);const win=ps>ns?'正方':'反方';const com='评委组判决：正方 '+ps+'分，反方 '+ns+'分。获胜方：'+win+'。'+win+'在论证与论据匹配度上更胜一筹。';allSpeeches.push({phaseId:p.id,phaseName:p.name,speaker:'评委',role:'judge',text:com,durationSec:Math.ceil(com.length/WORDS_PER_SEC),resultData:{positiveScore:ps,negativeScore:ns,winner:win}});}});
+debateData={topic:safeTopic,saveName:safeSaveName,seed,flowSteps:allSpeeches,result:null};
+document.getElementById('debateApp').innerHTML='<div class="app-container"><div class="header"><span class="logo-icon">⚡</span><h1>AI模拟华语辩论赛</h1><p style="color:var(--text-muted);">辩题：'+safeTopic+'</p></div><div class="controls-bar"><span>速度：</span><input type="range" id="speedSlider" min="1" max="10" value="5"><span id="speedDisplay">中速</span><button class="btn btn-secondary" id="btnPause">⏯暂停</button><button class="btn btn-secondary" id="btnSkip">⏭跳过</button><span id="progressLabel">准备中...</span></div><div class="stage"><div id="speechContainer"></div><div id="resultBanner" class="hidden"></div></div></div>';
+const $spc=document.getElementById('speechContainer');const $resB=document.getElementById('resultBanner');const $prog=document.getElementById('progressLabel');const $pause=document.getElementById('btnPause');const $skip=document.getElementById('btnSkip');const $speed=document.getElementById('speedSlider');const $spdDisp=document.getElementById('speedDisplay');
+function renderStep(s,i){const div=document.createElement('div');div.className='speech-bubble '+(s.side==='positive'?'speech-positive':s.side==='negative'?'speech-negative':s.role==='chair'?'speech-chair':'speech-judge');div.innerHTML='<div class="speech-label">'+(s.role==='chair'?'[主席]':s.role==='judge'?'[评委]':(s.side==='positive'?'正方':'反方'))+' '+s.phaseName+' <span class="duration-tag">[约'+s.durationSec+'秒]</span></div><div style="white-space:pre-wrap;">'+s.text+'</div>';$spc.appendChild(div);$spc.parentElement.scrollTop=$spc.parentElement.scrollHeight;}
+function execStep(){if(!isRunning||globalStepIndex>=allSpeeches.length){finishDebate();return;}if(isPaused)return;const step=allSpeeches[globalStepIndex];$prog.textContent='环节 '+(globalStepIndex+1)+'/'+allSpeeches.length;renderStep(step,globalStepIndex);if(step.resultData)debateData.result=step.resultData;timeout=setTimeout(()=>{globalStepIndex++;execStep();},Math.max(300,step.durationSec*1000/(speed*0.5)));}
+function finishDebate(){isRunning=false;if(timeout)clearTimeout(timeout);if(debateData.result){const r=debateData.result;$resB.classList.remove('hidden');$resB.innerHTML='<div class="winner">🏆 获胜方：'+r.winner+'</div><div>正方 '+r.positiveScore+' 分 | 反方 '+r.negativeScore+' 分</div>';}try{const all=JSON.parse(localStorage.getItem('ai_debate_all_records')||'{}');all[safeSaveName]=debateData;localStorage.setItem('ai_debate_all_records',JSON.stringify(all));}catch(e){}}
+$pause.onclick=()=>{isPaused=!isPaused;$pause.textContent=isPaused?'▶继续':'⏯暂停';if(!isPaused)execStep();};
+$skip.onclick=()=>{if(!isRunning)return;if(timeout)clearTimeout(timeout);globalStepIndex++;execStep();};
+$speed.oninput=()=>{speed=parseInt($speed.value);$spdDisp.textContent=speed<=2?'很慢':speed<=4?'慢速':speed<=6?'中速':speed<=8?'快速':'极速';};
+execStep();
+}catch(e){document.getElementById('debateApp').innerHTML='<div style="color:red">错误：'+e.message+'</div>';}})();`;
+    }
+
+    function generateLoadScript(saveName){ return `(function(){try{const d=JSON.parse(localStorage.getItem('ai_debate_all_records')||'{}')['${saveName}'];if(!d)return;const s=d.flowSteps;document.getElementById('debateApp').innerHTML='<div class="app-container"><div class="header"><span class="logo-icon">⚡</span><h1>AI模拟华语辩论赛</h1><p style="color:var(--text-muted);">辩题：'+d.topic+' （已保存）</p></div><div class="stage"><div id="speechContainer"></div><div id="resultBanner" class="hidden"></div></div></div>';const c=document.getElementById('speechContainer');s.forEach((st,i)=>{const div=document.createElement('div');div.className='speech-bubble '+(st.side=='positive'?'speech-positive':st.side=='negative'?'speech-negative':st.role=='chair'?'speech-chair':'speech-judge');div.innerHTML='<div class="speech-label">'+(st.role=='chair'?'主席':st.role=='judge'?'评委':(st.side=='positive'?'正方':'反方'))+' '+ (st.phaseName||'') +' <span class="duration-tag">[约'+st.durationSec+'秒]</span></div><div style="white-space:pre-wrap;">'+st.text+'</div>';c.appendChild(div);});if(d.result){const r=d.result;document.getElementById('resultBanner').innerHTML='<div class="winner">🏆 获胜方：'+r.winner+'</div><div>正方 '+r.positiveScore+' 分 | 反方 '+r.negativeScore+' 分</div>';}})catch(e){document.getElementById('debateApp').innerHTML='<div style="color:red">加载错误</div>';}})();`; }
+</script>
+</body>
+</html>
